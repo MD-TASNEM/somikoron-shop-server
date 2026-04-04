@@ -2099,8 +2099,9 @@ async function startServer() {
     next(err);
   });
 
-  // --- Vite integration ---
+  // --- Vite integration for development ---
   if (process.env.NODE_ENV !== "production") {
+    console.log("🚀 Development mode: Integrating with Vite dev server");
     const vite = await createViteServer({
       root: path.join(__dirname, "../client"),
       server: { middlewareMode: true },
@@ -2108,6 +2109,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
+    console.log("🏭 Production mode: Serving static files");
     const distPath = path.join(__dirname, "../client/dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
