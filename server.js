@@ -2102,12 +2102,13 @@ async function startServer() {
   // --- Vite integration ---
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
+      root: path.join(__dirname, "../client"),
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(__dirname, "dist");
+    const distPath = path.join(__dirname, "../client/dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
