@@ -9,6 +9,7 @@ import jwt from "jsonwebtoken";
 import morgan from "morgan";
 import SslCommerzPayment from "sslcommerz-lts";
 import nodemailer from "nodemailer";
+import cors from "cors";
 
 dotenv.config();
 
@@ -487,6 +488,24 @@ async function startServer() {
 
   const app = express();
   const PORT = 3000;
+
+  // Enable CORS for all routes
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",")
+    : [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://somikoron-shop.vercel.app",
+      ];
+
+  app.use(
+    cors({
+      origin: allowedOrigins,
+      credentials: true,
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization"],
+    }),
+  );
 
   app.use(express.json());
 
@@ -2109,11 +2128,18 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    console.log("🏭 Production mode: Serving static files");
-    const distPath = path.join(__dirname, "../client/dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+    console.log("🏭 Production mode: API server only");
+
+    // API 404 Handler
+    app.all("*", (req, res) => {
+      if (req.path.startsWith("/api/")) {
+        return res.status(404).json({
+          message: `API route ${req.method} ${req.path} not found`,
+        });
+      }
+      res.status(404).json({
+        message: "API server - frontend not served in production",
+      });
     });
   }
 
