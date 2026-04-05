@@ -324,6 +324,21 @@ app.get("/api/products", async (req, res) => {
   }
 });
 
+// Carousel route
+app.get("/api/carousel", async (req, res) => {
+  try {
+    const database = await connectToDatabase();
+    const carousel = await database
+      .collection("carousel")
+      .find({})
+      .sort({ order: 1 })
+      .toArray();
+    res.json(carousel);
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
 app.get("/api/products/:id", async (req, res) => {
   try {
     const database = await connectToDatabase();
@@ -690,6 +705,21 @@ export default async function handler(req, res) {
       }
     });
 
+    // Carousel route
+    apiRouter.get("/carousel", async (req, res) => {
+      try {
+        const database = await connectToDatabase();
+        const carousel = await database
+          .collection("carousel")
+          .find({})
+          .sort({ order: 1 })
+          .toArray();
+        res.json(carousel);
+      } catch (error) {
+        res.status(500).json({ message: "Server error", error: error.message });
+      }
+    });
+
     // Product by ID route
     apiRouter.get("/products/:id", async (req, res) => {
       try {
@@ -719,6 +749,7 @@ export default async function handler(req, res) {
           "POST /api/auth/login",
           "GET /api/products",
           "GET /api/products/:id",
+          "GET /api/carousel",
         ],
       });
     });
