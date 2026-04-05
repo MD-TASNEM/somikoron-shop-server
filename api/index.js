@@ -570,4 +570,178 @@ app.put("/api/admin/orders/:id", authenticate, isAdmin, async (req, res) => {
 });
 
 // Export for Vercel
-export default app;
+export default async function handler(req, res) {
+  try {
+    // Connect to database
+    await connectToDatabase();
+
+    // Create Express app
+    const app = express();
+
+    // Middleware
+    const allowedOrigins = process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(",")
+      : [
+          "http://localhost:3000",
+          "http://localhost:5173",
+          "https://somikoron-shop.vercel.app",
+        ];
+
+    app.use(
+      cors({
+        origin: allowedOrigins,
+        credentials: true,
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization"],
+      }),
+    );
+
+    app.use(express.json());
+    app.use(morgan("combined"));
+
+    // API Routes
+    const apiRouter = express.Router();
+
+    // Debug route
+    apiRouter.get("/debug", (req, res) => {
+      res.json({
+        status: "ok",
+        message: "API is working",
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    // Auth routes
+    apiRouter.post("/auth/register", async (req, res) => {
+      try {
+        const database = await connectToDatabase();
+        const { name, email, password, photoURL } = req.body;
+
+        const existing = await database.collection("users").findOne({ email });
+        if (existing) {
+          return res.status(400).json({ message: "Email already exists" });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const result = await database.collection("users").insertOne({
+          name,
+          email,
+          password: hashedPassword,
+          photoURL,
+          role: "user",
+          createdAt: new Date(),
+        });
+
+        const token = jwt.sign({ id: result.insertedId }, JWT_SECRET, {
+          expiresIn: "7d",
+        });
+        res.json({
+          token,
+          user: { id: result.insertedId, name, email, photoURL, role: "user" },
+        });
+      } catch (error) {
+        res.status(500).json({ message: "Server error", error: error.message });
+      }
+    });
+
+    apiRouter.post("/auth/login", async (req, res) => {
+      try {
+        const database = await connectToDatabase();
+        const { email, password } = req.body;
+
+        const user = await database.collection("users").findOne({ email });
+        if (!user || !(await bcrypt.compare(password, user.password))) {
+          return res.status(400).json({ message: "Invalid credentials" });
+        }
+
+        const token = jwt.sign({ id: user._id }, JWT_SECRET, {
+          expiresIn: "7d",
+        });
+        res.json({
+          token,
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            photoURL: user.photoURL,
+            role: user.role,
+          },
+        });
+      } catch (error) {
+        res.status(500).json({ message: "Server error", error: error.message });
+      }
+    });
+
+    // Products route
+    apiRouter.get("/products", async (req, res) => {
+      try {
+        const database = await connectToDatabase();
+        const { category, search } = req.query;
+        const query = {};
+        if (category && category !== "all") query.category = category;
+        if (search) query.name = { $regex: search, $options: "i" };
+        const products = await database
+          .collection("products")
+          .find(query)
+          .toArray();
+        res.json(products);
+      } catch (error) {
+        res.status(500).json({ message: "Server error", error: error.message });
+      }
+    });
+
+    // Product by ID route
+    apiRouter.get("/products/:id", async (req, res) => {
+      try {
+        const database = await connectToDatabase();
+        const product = await database
+          .collection("products")
+          .findOne({ _id: new ObjectId(req.params.id) });
+        if (!product) {
+          return res.status(404).json({ message: "Product not found" });
+        }
+        res.json(product);
+      } catch (error) {
+        res.status(400).json({ message: "Invalid product ID" });
+      }
+    });
+
+    // Mount API routes
+    app.use("/api", apiRouter);
+
+    // 404 handler
+    app.use((req, res) => {
+      res.status(404).json({
+        message: `Route ${req.method} ${req.path} not found`,
+        availableRoutes: [
+          "GET /api/debug",
+          "POST /api/auth/register",
+          "POST /api/auth/login",
+          "GET /api/products",
+          "GET /api/products/:id",
+        ],
+      });
+    });
+
+    // Global error handler
+    app.use((error, req, res, next) => {
+      console.error("[API Error]", error);
+      res.status(500).json({
+        message: "Internal Server Error",
+        error:
+          process.env.NODE_ENV === "production"
+            ? "Something went wrong"
+            : error.message,
+      });
+    });
+
+    // Handle the request
+    return app(req, res);
+  } catch (error) {
+    console.error("[Handler Error]", error);
+    return res.status(500).json({
+      message: "Server initialization failed",
+      error: error.message,
+    });
+  }
+}

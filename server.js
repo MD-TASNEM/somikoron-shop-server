@@ -479,15 +479,64 @@ const isAdmin = (req, res, next) => {
   next();
 };
 
-async function startServer() {
-  console.log(`Node version: ${process.version}`);
-  console.log(`OpenSSL version: ${process.versions.openssl}`);
+// Vercel serverless export
+export default async function handler(req, res) {
+  try {
+    // Initialize app for serverless
+    const app = express();
 
-  // Start DB connection in background
-  connectToDatabase();
+    // Enable CORS for all routes
+    const allowedOrigins = process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(",")
+      : [
+          "http://localhost:3000",
+          "http://localhost:5173",
+          "https://somikoron-shop.vercel.app",
+        ];
+
+    app.use(
+      cors({
+        origin: allowedOrigins,
+        credentials: true,
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization"],
+      }),
+    );
+
+    app.use(express.json());
+
+    // Setup Morgan for standard logging
+    app.use(
+      morgan(":method :url :status :res[content-length] - :response-time ms"),
+    );
+
+    // API Router
+    const apiRouter = express.Router();
+
+    // Mount all API routes here
+    await setupApiRoutes(apiRouter);
+
+    // Mount API Router
+    app.use("/api", apiRouter);
+
+    // Handle the request
+    return app(req, res);
+  } catch (error) {
+    console.error("[Serverless Error]", error);
+    return res.status(500).json({
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+}
+
+// Start the server
+async function startServer() {
+  // Initialize database connection
+  await connectToDatabase();
 
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 5000;
 
   // Enable CORS for all routes
   const allowedOrigins = process.env.ALLOWED_ORIGINS
@@ -514,43 +563,61 @@ async function startServer() {
     morgan(":method :url :status :res[content-length] - :response-time ms"),
   );
 
-  // Detailed Request/Response Logging Middleware
-  app.use((req, res, next) => {
-    const start = Date.now();
-    const { method, url, body, query } = req;
-
-    // Log request details
-    console.log(`>>> [REQUEST] ${method} ${url}`);
-    if (Object.keys(query).length > 0)
-      console.log("    Query:", JSON.stringify(query));
-
-    // Safely log body (exclude sensitive fields)
-    if (method !== "GET" && Object.keys(body).length > 0) {
-      const safeBody = { ...body };
-      if (safeBody.password) safeBody.password = "********";
-      if (safeBody.token) safeBody.token = "********";
-      console.log("    Body:", JSON.stringify(safeBody));
-    }
-
-    // Capture response finish to log status and duration
-    res.on("finish", () => {
-      const duration = Date.now() - start;
-      const status = res.statusCode;
-      const logColor =
-        status >= 400 ? "\x1b[31m" : status >= 300 ? "\x1b[33m" : "\x1b[32m";
-      const resetColor = "\x1b[0m";
-
-      console.log(
-        `<<< [RESPONSE] ${method} ${url} ${logColor}${status}${resetColor} (${duration}ms)`,
-      );
-    });
-
-    next();
-  });
-
   // API Router
   const apiRouter = express.Router();
 
+  // Mount all API routes here
+  await setupApiRoutes(apiRouter);
+
+  // Mount API Router
+  app.use("/api", apiRouter);
+
+  // --- Global Error Handler ---
+  app.use((err, req, res, next) => {
+    console.error("[Global Error]", err);
+    if (req.path.startsWith("/api/")) {
+      return res.status(500).json({
+        message: "Internal Server Error",
+        error: err.message,
+      });
+    }
+    next(err);
+  });
+
+  // --- Vite integration for development ---
+  if (process.env.NODE_ENV !== "production") {
+    console.log("🚀 Development mode: Integrating with Vite dev server");
+    const vite = await createViteServer({
+      root: path.join(__dirname, "../somikoron-shop-client"),
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    console.log("🏭 Production mode: API server only");
+
+    // API 404 Handler
+    app.all("*", (req, res) => {
+      if (req.path.startsWith("/api/")) {
+        return res.status(404).json({
+          message: `API route ${req.method} ${req.path} not found`,
+        });
+      }
+      res.status(404).json({
+        message: "API server - frontend not served in production",
+      });
+    });
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+startServer();
+
+// Setup all API routes
+async function setupApiRoutes(apiRouter) {
   // --- Email Test Endpoint ---
   apiRouter.get("/test-email", async (req, res) => {
     try {
@@ -2096,56 +2163,4 @@ async function startServer() {
   });
 
   // API 404 Handler
-  apiRouter.all("*", (req, res) => {
-    console.log(`[API 404] ${req.method} ${req.url}`);
-    res
-      .status(404)
-      .json({ message: `API route ${req.method} ${req.url} not found` });
-  });
-
-  // Mount API Router
-  app.use("/api", apiRouter);
-
-  // --- Global Error Handler ---
-  app.use((err, req, res, next) => {
-    console.error("[Global Error]", err);
-    if (req.path.startsWith("/api/")) {
-      return res.status(500).json({
-        message: "Internal Server Error",
-        error: err.message,
-      });
-    }
-    next(err);
-  });
-
-  // --- Vite integration for development ---
-  if (process.env.NODE_ENV !== "production") {
-    console.log("🚀 Development mode: Integrating with Vite dev server");
-    const vite = await createViteServer({
-      root: path.join(__dirname, "../client"),
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    console.log("🏭 Production mode: API server only");
-
-    // API 404 Handler
-    app.all("*", (req, res) => {
-      if (req.path.startsWith("/api/")) {
-        return res.status(404).json({
-          message: `API route ${req.method} ${req.path} not found`,
-        });
-      }
-      res.status(404).json({
-        message: "API server - frontend not served in production",
-      });
-    });
-  }
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
 }
-
-startServer();
