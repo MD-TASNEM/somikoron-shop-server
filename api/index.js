@@ -12,15 +12,21 @@ dotenv.config();
 
 const app = express();
 
-// CORS configuration for Vercel deployment
+// ১. CORS configuration (Updated)
 const corsOptions = {
-  origin: ["https://somikoron-shop.vercel.app", "http://localhost:3000"],
+  origin: [
+    "https://somikoron-shop.vercel.app",
+    "http://localhost:5173", // 👈 Vite ফ্রন্টএন্ডের আসল পোর্ট
+    "http://localhost:3000", // ব্যাকআপ হিসেবে রাখা হলো
+  ],
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 
+// ২. CORS মিডলওয়্যার অ্যাপ্লাই করুন
 app.use(cors(corsOptions));
+
 app.use(express.json());
 
 // Setup Morgan for logging
